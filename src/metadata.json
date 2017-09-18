@@ -3,5 +3,6 @@
 "description": "1C search provider", 
 "uuid": "onec-search-provider@evhen.sosna.gmail.com", 
 "shell-version": ["3.24"],
-"version": 2
+"version": 2,
+"url":"https://github.com/pumbaEO/onec-search-provider"
 }
