@@ -50,12 +50,135 @@ function getDefaultOneC() {
         'args':'/IBName'}
 }
 
+
+function fuzzyMatch(term, text) {
+    var pos = -1;
+    var matches = [];
+    var _text = text.toLowerCase();
+    var _term = term.toLowerCase();
+
+    //logDebug("fuzzyTerm: "+_term);
+    //logDebug("fuzzyText: "+_text);
+    restring = "";
+    for (var i=0; i<_term.length; i++) {
+      var c = _term[i];
+      restring = restring + c + "*";
+
+      while (true) {
+        pos += 1;
+        if (pos >= _text.length) {
+          return false;
+        }
+        if (_text[pos] == c) {
+          matches.push(pos);
+          break;
+        }
+      }
+    }
+    logDebug("matches: "+matches.join(" "))
+    return matches;
+  }
+  
 let desktopAppInfo = Gio.DesktopAppInfo.new("1cestart.desktop");
 
 let onecIcon;
 
 if (desktopAppInfo !== null) {
     onecIcon = desktopAppInfo.get_icon();
+}
+
+const TrancodeRuToEngDict = {
+    'а': 'f',
+    'б': ',',
+    'в': 'd',
+    'г': 'u',
+    'д': 'l',
+    'е': 't',
+    'ё': '`',
+    'ж': ';',
+    'з': 'p',
+    'и': 'b',
+    'й': 'q',
+    'к': 'r',
+    'л': 'k',
+    'м': 'v',
+    'н': 'y',
+    'о': 'j',
+    'п': 'g',
+    'р': 'h',
+    'с': 'c',
+    'т': 'n',
+    'у': 'e',
+    'ы': 's',
+    'х': '[',
+    'ф': 'a',
+    'ц': 'w',
+    'ч': 'x',
+    'ш': 'i',
+    'щ': 'o',
+    'ь': 'm',
+    'ъ': ']',
+    'э': '',
+    'ю': '.',
+    'я': 'z'
+}
+
+const TrancodeUkToEngDict = {
+    'а': 'f',
+    'б': ',',
+    'в': 'd',
+    'г': 'u',
+    'д': 'l',
+    'е': 't',
+    'ж': ';',
+    'з': 'p',
+    'и': 'b',
+    'й': 'q',
+    'к': 'r',
+    'л': 'k',
+    'м': 'v',
+    'н': 'y',
+    'о': 'j',
+    'п': 'g',
+    'р': 'h',
+    'с': 'c',
+    'т': 'n',
+    'у': 'e',
+    'і': 's',
+    'х': '[',
+    'ф': 'a',
+    'ц': 'w',
+    'ч': 'x',
+    'ш': 'i',
+    'щ': 'o',
+    'ь': 'm',
+    'ї': ']',
+    'є': '',
+    'ю': '.',
+    'я': 'z'
+}
+
+const TrancodeEngToRuDict = {};
+const TrancodeEngToUkDict = {};
+
+function generateIvertedDict(sourceDict, destDict) {
+    for(let sourceindex in sourceDict)  {
+        destDict[sourceDict[sourceindex]] = sourceindex;
+    }
+}
+
+function transcode(source, dict) {
+    source = source.toLowerCase();
+    let result = '';
+    for (let i = 0; i < source.length; i++) {
+        let char = source.charAt(i);
+        let foundChar = dict[char];
+        if (!foundChar) {
+            foundChar = char;
+        }
+        result = result + foundChar;
+    }
+    return result;
 }
 
 const OneCSearchProvider = new Lang.Class({
@@ -70,6 +193,7 @@ const OneCSearchProvider = new Lang.Class({
         this.title = "1C Search";
         this.searchSystem = null;
         this._knownBases = [];
+        this._duplicate = {};
 
         this.appInfo = {
             get_name: function () { return 'onec-search-provider'; },
@@ -180,7 +304,7 @@ const OneCSearchProvider = new Lang.Class({
         if (terms[0] == onec_prefix) {
             this._mode = "DESIGNER";
             return terms.slice(1);
-        } else if (terms[0] == onec_enterprise) {
+        } else if (terms[0] == onec_enterprise || transcode(terms[0], TrancodeRuToEngDict)) {
             this._mode = "ENTERPRISE";
             return terms.slice(1);
         } else {
@@ -188,7 +312,8 @@ const OneCSearchProvider = new Lang.Class({
         }
     },
 
-    _getResultSet: function (sessions, terms) {
+    _getResultSet: function (sessions, terms, all = false) {
+        log("_getResultSet:"+terms);
         let results = [];
         let weightarray = [];
         let weightkeys = {};
@@ -206,6 +331,9 @@ const OneCSearchProvider = new Lang.Class({
             let weight = 100;
             let weightconn = 20;
             for (let j = 0; !failed && j < res.length; j++) {
+                if (all){
+                    break;
+                }
                 let re = res[j];
                 // search on name, protocol or the term remmina
                 failed |= (session.name.search(re) < 0 &&
@@ -253,19 +381,33 @@ const OneCSearchProvider = new Lang.Class({
             let key = weightarray[k];
             toresult = weightkeys[key];
             for (i in toresult){
-                results.push(toresult[i]);
+                if (!this._duplicate[toresult[i]]){
+                    results.push(toresult[i]);
+                    this._duplicate[toresult[i]] = true;
+                }
             }
         }
+        log("return _getResultSet:"+results);
         return results;
     },
 
     getInitialResultSet: function(terms, callback) {
-        let res = this._getResultSet(this._knownBases, terms);
+        this._duplicate = {};
+        let res = this._getResultSet(this._knownBases, terms, true);
         callback(res)
     },
 
     getSubsearchResultSet: function(previousResults, terms, callback) {
-        let res = this._getResultSet(this._knownBases, terms);
+        this._duplicate = {};
+        let res = [];
+        res = this._getResultSet(this._knownBases, terms, false);
+        if(res.length < 3 ){
+            let query = terms.join(' ');
+            res = res.concat(this._getResultSet(this._knownBases, transcode(query, TrancodeEngToRuDict).split(" "), false));
+            if (res.length < 3) {
+                res = res.concat(this._getResultSet(this._knownBases, transcode(query, TrancodeEngToUkDict).split(" "), false));
+            }
+        }
         callback(res)
     },
 });
@@ -276,6 +418,9 @@ function init() {
 function enable() {
     if (!onecSearchProvider) {
         onecSearchProvider = new OneCSearchProvider();
+        generateIvertedDict(TrancodeRuToEngDict, TrancodeEngToRuDict);
+        generateIvertedDict(TrancodeUkToEngDict, TrancodeEngToUkDict);
+        
         Main.overview.viewSelector._searchResults._registerProvider(onecSearchProvider);
         
     }
